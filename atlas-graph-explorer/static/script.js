@@ -361,10 +361,10 @@ function handleFileUpload(event) {
 }
 
 // ─── CORE AGENT CALL (NEW PYTHON BACKEND) ─────────────────────────
-async function callAgent() {
+async function callAgent(messageText) {
   showTyping();
 
-  const userInput = document.getElementById('user-input').value.trim();
+  const userInput = messageText || "";
   // Read from the persistent uploadedMaterial state instead of the textarea (which gets cleared on submit)
   const materialInput = uploadedMaterial || "";
 
@@ -581,7 +581,7 @@ async function sendMessage(overrideText) {
   input.value = '';
   addChatMessage(text, 'user');
   conversationHistory.push({ role: 'user', content: text });
-  await callAgent();
+  await callAgent(text);
 }
 
 function addChatMessage(text, role) {
