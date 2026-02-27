@@ -31,6 +31,15 @@ def get_avatar_html(css_content: str, js_content: str) -> str:
   </div>
   <div id="emotion-detected"></div>
 
+  <!-- FOCUS METER — cognitive load dashboard -->
+  <div id="focus-meter">
+    <div id="focus-label">🧠 Focus Level</div>
+    <div id="focus-bar">
+      <div id="focus-bar-fill"></div>
+    </div>
+    <div id="focus-status">Waiting for camera...</div>
+  </div>
+
   <div id="avatars-grid">
     <div class="avatar-card" data-id="professor" onclick="selectAvatar('professor')">
       <div class="avatar-face" id="face-professor">
@@ -131,6 +140,32 @@ def get_avatar_html(css_content: str, js_content: str) -> str:
     </div>
   </div>
 
+  <!-- INTERACTIVE QUIZ UI — shown when Coach Rex generates a quiz -->
+  <div id="quiz-container">
+    <div id="qz-progress-bar">
+      <div id="qz-progress-fill"></div>
+    </div>
+    <div id="qz-header">
+      <span id="qz-counter">Question 1 / 5</span>
+      <span id="qz-type-badge">MCQ</span>
+    </div>
+    <div id="qz-question-card">
+      <div id="qz-question-text">Loading question...</div>
+      <div id="qz-options"></div>
+      <div id="qz-fill-input-wrap">
+        <input type="text" id="qz-fill-input" placeholder="Type your answer..." onkeydown="if(event.key==='Enter')submitFillAnswer()">
+        <button id="qz-fill-submit" onclick="submitFillAnswer()">Submit</button>
+      </div>
+    </div>
+    <div id="qz-explanation">
+      <div id="qz-result-icon"></div>
+      <div id="qz-explanation-text"></div>
+    </div>
+    <div id="qz-nav">
+      <button id="qz-next-btn" onclick="nextQuizQuestion()">Next Question →</button>
+    </div>
+  </div>
+
   <!-- QUIZ SCORE CARD — shown after quiz completion -->
   <div id="quiz-score">
     <div id="qs-inner">
@@ -139,6 +174,17 @@ def get_avatar_html(css_content: str, js_content: str) -> str:
       <div id="qs-grade">🏆 Grade: A</div>
       <div id="qs-bar"><div id="qs-bar-fill"></div></div>
       <button id="qs-retake" onclick="retakeQuiz()">🔄 Retake Quiz</button>
+    </div>
+  </div>
+
+  <!-- SYLLABUS ROADMAP UI — shown when Nova generates a roadmap -->
+  <div id="roadmap-container">
+    <div id="rm-header">
+      <div id="rm-title">📅 Course Roadmap</div>
+      <div id="rm-subtitle">Generated from your syllabus</div>
+    </div>
+    <div id="rm-timeline">
+      <!-- Roadmap milestones will be injected here -->
     </div>
   </div>
 

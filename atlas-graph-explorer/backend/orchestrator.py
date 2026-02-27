@@ -24,8 +24,14 @@ class Orchestrator:
         agent = self.agents[avatar_id]
         
         # 1. Construct the specific mode prompt dynamically
+        if not material.strip():
+            material = "ERROR: MATERIAL WAS EMPTY WHEN IT REACHED ORCHESTRATOR!"
+            
         current_prompt = self._construct_prompt(agent, message, mode, material)
         
+        with open("last_prompt.txt", "w", encoding="utf-8") as f:
+            f.write(current_prompt)
+
         # 2. Add user message to the agent's memory (so it remembers the conversation)
         # Note: We append the raw message if it's a chat, or the formatted prompt if it's an action
         display_message = message if message else f"[{mode} action initiated]"
@@ -67,13 +73,15 @@ class Orchestrator:
             
         # Quizmaster (Coach Rex)
         if mode == "quiz":
-            return f"Generate 5 quiz questions based on this material:\n\n{material}"
+            return f"Generate exactly 5 quiz questions as a JSON array based on this material. Return ONLY the raw JSON array, no other text:\n\n{material}"
             
         # Summarizer (Nova)
         if mode == "auto_summary":
-            return f"Create a structured Markdown summary of this material:\n\n{material}"
+            return f"Summarize the following material immediately. DO NOT ASK for the material, it is provided right here:\n\n[START MATERIAL]\n{material}\n[END MATERIAL]\n\nNow provide the structured Auto Summary:"
         if mode == "guided_summary":
             return f"I have uploaded new material. Please read it and suggest an outline so we can summarize it section by section together.\n\nMaterial:\n{material}"
+        if mode == "syllabus_roadmap":
+            return f"Extract the timeline, dates, topics, and deadlines from this syllabus material and return ONLY a structured JSON array of milestone objects for a 'Syllabus Roadmap':\n\n{material}"
             
         # Reflector (Dr. Sage)
         if mode == "reflection_start":

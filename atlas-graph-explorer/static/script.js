@@ -75,7 +75,8 @@ const AVATARS = {
     modes: {
       chat: { label: "💬 Chat", desc: "General questions" },
       summarize_auto: { label: "📝 Auto Summary", desc: "Nova summarizes for you" },
-      summarize_guided: { label: "🤝 Guided Summary", desc: "Build the summary together" }
+      summarize_guided: { label: "🤝 Guided Summary", desc: "Build the summary together" },
+      syllabus_roadmap: { label: "📅 RoadMap", desc: "Build a course timeline" }
     },
     modePrompts: {
       summarize_auto: `You are Nova, the Summarizer Agent. The user will paste study material. Your job:
@@ -175,7 +176,7 @@ let uploadedMaterial = '';
 const mouthStates = ['', 'open-sm', 'open-md', 'open-lg', 'open-xl', 'open-md', 'open-sm', ''];
 
 // Agent-specific state
-let quizState = { questionNum: 0, score: 0, total: 5, active: false };
+let quizState = { questions: [], currentIndex: 0, score: 0, total: 5, active: false, answered: false };
 let teachState = { phase: 'newbie', exchangeCount: 0, active: false };
 let flashcardState = { cards: [], currentIndex: 0, flipped: false, active: false };
 let reflectState = { phase: 0, active: false };
@@ -204,10 +205,12 @@ function selectAvatar(id) {
 }
 
 function resetAllAgentStates() {
-  quizState = { questionNum: 0, score: 0, total: 5, active: false };
+  quizState = { questions: [], currentIndex: 0, score: 0, total: 5, active: false, answered: false };
   teachState = { phase: 'newbie', exchangeCount: 0, active: false };
   flashcardState = { cards: [], currentIndex: 0, flipped: false, active: false };
   reflectState = { phase: 0, active: false };
+  hideQuizUI();
+  hideRoadmapUI();
 }
 
 // ─── MODE TOOLBAR ───────────────────────────────────────────────────
@@ -236,10 +239,12 @@ function activateMode(modeKey) {
   resetAllAgentStates();
   renderModeToolbar(currentAvatar);
   hideFlashcardUI();
+  hideQuizUI();
   hideQuizScore();
+  hideRoadmapUI();
 
   // Determine if this mode needs material input
-  const needsMaterial = ['summarize_auto', 'summarize_guided', 'quiz', 'flashcard'].includes(modeKey);
+  const needsMaterial = ['summarize_auto', 'summarize_guided', 'quiz', 'flashcard', 'syllabus_roadmap'].includes(modeKey);
   if (needsMaterial) {
     showMaterialZone();
   } else {
@@ -257,6 +262,9 @@ function activateMode(modeKey) {
       break;
     case 'summarize_guided':
       greeting = `🤝 Guided Summary mode! Paste your material below, then we'll build the summary TOGETHER. I'll ask you guiding questions — you learn by doing!`;
+      break;
+    case 'syllabus_roadmap':
+      greeting = `📅 Course Roadmap mode! Paste your course syllabus below, and I'll extract all topics and deadlines into an interactive visual timeline for you.`;
       break;
     case 'quiz':
       greeting = `🧠 QUIZ TIME, champion! Paste your study material below and I'll test your knowledge with 5 tough questions. No excuses — let's see what you've got!`;
@@ -316,6 +324,9 @@ function submitMaterial() {
     callAgent();
   } else if (currentMode === 'flashcard') {
     conversationHistory.push({ role: 'user', content: `Here is my study material. Extract flashcards:\n\n${text}` });
+    callAgent();
+  } else if (currentMode === 'syllabus_roadmap') {
+    conversationHistory.push({ role: 'user', content: `Here is my syllabus material. Build a roadmap:\n\n${text}` });
     callAgent();
   }
 }
@@ -397,6 +408,18 @@ async function callAgent(messageText) {
       return;
     }
 
+    // Handle quiz response (parse JSON quiz questions)
+    if (currentMode === 'quiz') {
+      handleQuizResponse(reply);
+      return;
+    }
+
+    // Handle roadmap response (parse JSON timeline data)
+    if (currentMode === 'syllabus_roadmap') {
+      handleRoadmapResponse(reply);
+      return;
+    }
+
     // Handle teach mode phase transitions tracking (purely visual tracking)
     if (currentMode === 'teach' && userInput) {
       teachState.exchangeCount++;
@@ -404,17 +427,6 @@ async function callAgent(messageText) {
         teachState.phase = 'advocate';
         teachState.exchangeCount = 0;
         addChatMessage("🔄 Phase shift: Devil's Advocate mode activated!", 'ai');
-      }
-    }
-
-    // Handle quiz scoring tracking
-    if (currentMode === 'quiz') {
-      if (reply.includes('✅') || reply.toLowerCase().includes('correct')) {
-        quizState.score++;
-      }
-      if (reply.includes('FINAL SCORE') || reply.includes('Grade:')) {
-        quizState.active = false;
-        showQuizScore(quizState.score, quizState.total);
       }
     }
 
@@ -529,6 +541,230 @@ function hideFlashcardUI() {
   document.getElementById('flashcard-container').classList.remove('visible');
 }
 
+// ─── SYLLABUS ROADMAP UI LOGIC ─────────────────────────────────────────
+function handleRoadmapResponse(reply) {
+  try {
+    let jsonStr = reply;
+    const jsonMatch = reply.match(/\[[\s\S]*\]/);
+    if (jsonMatch) jsonStr = jsonMatch[0];
+
+    const parsedMilestones = JSON.parse(jsonStr);
+    if (Array.isArray(parsedMilestones) && parsedMilestones.length > 0) {
+      showRoadmapUI();
+      renderRoadmapUI(parsedMilestones);
+      const msg = `📅 I've built your course roadmap! Found ${parsedMilestones.length} key milestones and deadlines.`;
+      setBubbleText(msg);
+      addChatMessage(msg, 'ai');
+      speakText(msg, currentAvatar);
+      return;
+    }
+  } catch (e) {
+    console.error('Roadmap JSON parse error:', e);
+  }
+  // Fallback
+  setBubbleText(reply);
+  addChatMessage(reply, 'ai');
+  speakText(reply, currentAvatar);
+}
+
+function showRoadmapUI() {
+  document.getElementById('roadmap-container').classList.add('visible');
+}
+
+function hideRoadmapUI() {
+  const container = document.getElementById('roadmap-container');
+  if (container) container.classList.remove('visible');
+}
+
+function renderRoadmapUI(milestones) {
+  const timelineDiv = document.getElementById('rm-timeline');
+  timelineDiv.innerHTML = '';
+
+  milestones.forEach((ms, index) => {
+    const item = document.createElement('div');
+    // valid types: lecture, deadline, exam, reading
+    let typeClass = 'type-lecture';
+    if (ms.type === 'deadline') typeClass = 'type-deadline';
+    if (ms.type === 'exam') typeClass = 'type-exam';
+
+    item.className = `rm-milestone ${typeClass}`;
+    item.style.animationDelay = `${index * 0.15}s`;
+
+    item.innerHTML = `
+      <div class="rm-card">
+        <div class="rm-date">${ms.date || 'TBD'}</div>
+        <div class="rm-item-title">${ms.title || 'Untitled'}</div>
+        <div class="rm-desc">${ms.description || ''}</div>
+      </div>
+    `;
+    timelineDiv.appendChild(item);
+  });
+}
+
+// ─── INTERACTIVE QUIZ ENGINE ────────────────────────────────────────
+function handleQuizResponse(reply) {
+  try {
+    let jsonStr = reply;
+    const jsonMatch = reply.match(/\[[\s\S]*\]/);
+    if (jsonMatch) jsonStr = jsonMatch[0];
+
+    const parsedQuestions = JSON.parse(jsonStr);
+    if (Array.isArray(parsedQuestions) && parsedQuestions.length > 0) {
+      quizState.questions = parsedQuestions;
+      quizState.currentIndex = 0;
+      quizState.score = 0;
+      quizState.total = parsedQuestions.length;
+      quizState.active = true;
+      quizState.answered = false;
+      showQuizUI();
+      renderQuizQuestion();
+      const msg = `🧠 QUIZ TIME! ${parsedQuestions.length} questions loaded.Let's see what you've got, champion!`;
+      setBubbleText(msg);
+      addChatMessage(msg, 'ai');
+      speakText(msg, currentAvatar);
+      return;
+    }
+  } catch (e) {
+    // If JSON parsing fails, show as regular text message
+    console.error('Quiz JSON parse error:', e);
+  }
+  // Fallback: show as regular message
+  setBubbleText(reply);
+  addChatMessage(reply, 'ai');
+  speakText(reply, currentAvatar);
+}
+
+function showQuizUI() {
+  document.getElementById('quiz-container').classList.add('visible');
+}
+
+function hideQuizUI() {
+  document.getElementById('quiz-container').classList.remove('visible');
+}
+
+function renderQuizQuestion() {
+  const q = quizState.questions[quizState.currentIndex];
+  const idx = quizState.currentIndex + 1;
+  const total = quizState.total;
+  quizState.answered = false;
+
+  // Update progress
+  document.getElementById('qz-counter').textContent = `Question ${idx} / ${total}`;
+  document.getElementById('qz-progress-fill').style.width = `${((idx - 1) / total) * 100}%`;
+
+  // Type badge
+  const typeLabels = { mcq: 'Multiple Choice', tf: 'True / False', fill: 'Fill in the Blank' };
+  document.getElementById('qz-type-badge').textContent = typeLabels[q.type] || 'Question';
+
+  // Question text
+  document.getElementById('qz-question-text').textContent = q.question;
+
+  // Clear previous state
+  const optionsDiv = document.getElementById('qz-options');
+  optionsDiv.innerHTML = '';
+  document.getElementById('qz-explanation').classList.remove('visible');
+  document.getElementById('qz-next-btn').classList.remove('visible');
+  document.getElementById('qz-fill-input-wrap').classList.remove('visible');
+  document.getElementById('qz-fill-input').value = '';
+
+  if (q.type === 'fill') {
+    // Show fill-in-the-blank input
+    document.getElementById('qz-fill-input-wrap').classList.add('visible');
+    document.getElementById('qz-fill-input').focus();
+  } else {
+    // Render option buttons (mcq or tf)
+    const letters = ['A', 'B', 'C', 'D', 'E', 'F'];
+    q.options.forEach((opt, i) => {
+      const btn = document.createElement('button');
+      btn.className = 'qz-option-btn';
+      btn.innerHTML = `<span class="qz-option-letter">${letters[i] || (i + 1)}</span><span class="qz-option-text">${opt}</span>`;
+      btn.onclick = () => selectQuizAnswer(i, btn);
+      optionsDiv.appendChild(btn);
+    });
+  }
+}
+
+function selectQuizAnswer(selectedIndex, clickedBtn) {
+  if (quizState.answered) return;
+  quizState.answered = true;
+
+  const q = quizState.questions[quizState.currentIndex];
+  const correctIndex = q.correct;
+  const isCorrect = selectedIndex === correctIndex;
+
+  if (isCorrect) quizState.score++;
+
+  // Mark all buttons as answered
+  const allBtns = document.querySelectorAll('.qz-option-btn');
+  allBtns.forEach((btn, i) => {
+    btn.classList.add('answered');
+    if (i === correctIndex) btn.classList.add('correct');
+    if (i === selectedIndex && !isCorrect) btn.classList.add('wrong');
+  });
+
+  showQuizExplanation(isCorrect, q.explanation);
+}
+
+function submitFillAnswer() {
+  if (quizState.answered) return;
+  const input = document.getElementById('qz-fill-input');
+  const userAnswer = input.value.trim();
+  if (!userAnswer) return;
+  quizState.answered = true;
+
+  const q = quizState.questions[quizState.currentIndex];
+  const correctAnswer = q.correct_text || '';
+  const isCorrect = userAnswer.toLowerCase() === correctAnswer.toLowerCase();
+
+  if (isCorrect) quizState.score++;
+
+  // Style the input
+  input.style.borderColor = isCorrect ? '#34d399' : '#f87171';
+  input.disabled = true;
+
+  const explanation = isCorrect
+    ? q.explanation
+    : `The correct answer is: "${correctAnswer}". ${q.explanation}`;
+  showQuizExplanation(isCorrect, explanation);
+}
+
+function showQuizExplanation(isCorrect, explanation) {
+  const explDiv = document.getElementById('qz-explanation');
+  document.getElementById('qz-result-icon').textContent = isCorrect ? '✅' : '❌';
+  document.getElementById('qz-explanation-text').textContent =
+    (isCorrect ? 'Correct! ' : 'Not quite. ') + (explanation || '');
+  explDiv.classList.add('visible');
+
+  // Show next button
+  const isLast = quizState.currentIndex >= quizState.total - 1;
+  const nextBtn = document.getElementById('qz-next-btn');
+  nextBtn.textContent = isLast ? '🏆 See Results' : 'Next Question →';
+  nextBtn.classList.add('visible');
+
+  // Coach Rex reaction
+  const reaction = isCorrect ? 'CHAMPION move! 💪 You nailed that one!' : 'Tough break! But champions learn from mistakes. Keep pushing!';
+  setBubbleText(reaction);
+  speakText(reaction, currentAvatar);
+}
+
+function nextQuizQuestion() {
+  quizState.currentIndex++;
+
+  if (quizState.currentIndex >= quizState.total) {
+    // Quiz complete!
+    hideQuizUI();
+    document.getElementById('qz-progress-fill').style.width = '100%';
+    showQuizScore(quizState.score, quizState.total);
+    const msg = `🏆 FINAL SCORE: ${quizState.score}/${quizState.total}! ${quizState.score >= 4 ? 'LEGENDARY performance!' : quizState.score >= 3 ? 'Good effort, champion!' : 'Time to study harder — no excuses!'}`;
+    setBubbleText(msg);
+    addChatMessage(msg, 'ai');
+    speakText(msg, currentAvatar);
+    return;
+  }
+
+  renderQuizQuestion();
+}
+
 // ─── QUIZ SCORE ─────────────────────────────────────────────────────
 function showQuizScore(score, total) {
   const container = document.getElementById('quiz-score');
@@ -554,7 +790,8 @@ function hideQuizScore() {
 
 function retakeQuiz() {
   hideQuizScore();
-  quizState = { questionNum: 0, score: 0, total: 5, active: true };
+  hideQuizUI();
+  quizState = { questions: [], currentIndex: 0, score: 0, total: 5, active: false, answered: false };
   conversationHistory = [];
   activateMode('quiz');
 }
@@ -579,6 +816,28 @@ async function sendMessage(overrideText) {
   const text = overrideText || input.value.trim();
   if (!text) return;
   input.value = '';
+
+  // If the user pasted material into the chat bar instead of the big textarea
+  const needsMaterial = ['summarize_auto', 'summarize_guided', 'quiz', 'flashcard', 'syllabus_roadmap'].includes(currentMode);
+  if (needsMaterial && !uploadedMaterial) {
+    if (text.length > 50) {
+      // Treat this long message as the uploaded material
+      uploadedMaterial = text;
+      hideMaterialZone();
+      const preview = text.length > 100 ? text.substring(0, 100) + '...' : text;
+      addChatMessage(`📄 Material uploaded via chat: "${preview}"`, 'user');
+
+      if (currentMode === 'summarize_auto') conversationHistory.push({ role: 'user', content: `Here is my study material to summarize:\n\n${text}` });
+      else if (currentMode === 'summarize_guided') conversationHistory.push({ role: 'user', content: `Here is my study material. Guide me to build a summary:\n\n${text}` });
+      else if (currentMode === 'quiz') { quizState.questionNum = 1; conversationHistory.push({ role: 'user', content: `Here is my study material. Generate a quiz from it:\n\n${text}` }); }
+      else if (currentMode === 'flashcard') conversationHistory.push({ role: 'user', content: `Here is my study material. Extract flashcards:\n\n${text}` });
+      else if (currentMode === 'syllabus_roadmap') conversationHistory.push({ role: 'user', content: `Here is my syllabus material. Build a roadmap:\n\n${text}` });
+
+      await callAgent("");
+      return;
+    }
+  }
+
   addChatMessage(text, 'user');
   conversationHistory.push({ role: 'user', content: text });
   await callAgent(text);
@@ -637,8 +896,109 @@ function speakText(text, avatarId) {
   window.speechSynthesis.speak(utterance);
 }
 
-// ─── EMOTION DETECTION ──────────────────────────────────────────────
+// ─── AI STUDY MIRROR — EMOTION ENGINE ───────────────────────────────
 let lastEmotionTrigger = '', lastTriggerTime = 0;
+// Rolling window of last 6 emotion readings (~15 seconds at 2.5s intervals)
+let emotionWindow = [];
+const WINDOW_SIZE = 6;
+let lastProactiveTime = 0;
+const PROACTIVE_COOLDOWN = 45000; // 45 seconds between proactive interventions
+
+function pushEmotionReading(emotion) {
+  emotionWindow.push(emotion);
+  if (emotionWindow.length > WINDOW_SIZE) emotionWindow.shift();
+  updateFocusMeter();
+  checkProactiveIntervention();
+}
+
+function updateFocusMeter() {
+  const meter = document.getElementById('focus-meter');
+  if (!meter) return;
+  meter.classList.add('visible');
+
+  const fill = document.getElementById('focus-bar-fill');
+  const status = document.getElementById('focus-status');
+
+  if (emotionWindow.length === 0) {
+    fill.style.width = '50%';
+    status.textContent = 'Analyzing...';
+    return;
+  }
+
+  // Calculate focus score: positive emotions = high, negative = low
+  const scores = { focused: 90, happy: 85, neutral: 60, confused: 25, tired: 15, stressed: 20 };
+  const avg = emotionWindow.reduce((sum, e) => sum + (scores[e] || 50), 0) / emotionWindow.length;
+
+  fill.style.width = `${avg}%`;
+  status.classList.remove('alert');
+
+  if (avg >= 75) {
+    status.textContent = '🟢 High focus — you\'re in the zone!';
+  } else if (avg >= 50) {
+    status.textContent = '🟡 Moderate focus — stay with it';
+  } else if (avg >= 30) {
+    status.textContent = '🟠 Focus dropping — consider a break or quiz';
+    status.classList.add('alert');
+  } else {
+    status.textContent = '🔴 Low focus — intervention suggested';
+    status.classList.add('alert');
+  }
+}
+
+function checkProactiveIntervention() {
+  if (emotionWindow.length < WINDOW_SIZE) return;
+  const now = Date.now();
+  if (now - lastProactiveTime < PROACTIVE_COOLDOWN) return;
+
+  // Count dominant negative emotions in the window
+  const confusedCount = emotionWindow.filter(e => e === 'confused').length;
+  const tiredCount = emotionWindow.filter(e => e === 'tired').length;
+  const stressedCount = emotionWindow.filter(e => e === 'stressed').length;
+
+  const threshold = Math.ceil(WINDOW_SIZE * 0.6); // 60% of window
+
+  if (confusedCount >= threshold) {
+    lastProactiveTime = now;
+    proactiveIntervene('confused');
+  } else if (tiredCount >= threshold) {
+    lastProactiveTime = now;
+    proactiveIntervene('tired');
+  } else if (stressedCount >= threshold) {
+    lastProactiveTime = now;
+    proactiveIntervene('stressed');
+  }
+}
+
+function proactiveIntervene(state) {
+  const interventions = {
+    confused: {
+      message: "🧠 I've noticed you've been confused for a while. Let me help! Want me to break down the current topic differently, or should Coach Rex test what you DO know with a quick quiz?",
+      label: "😕 Sustained confusion detected"
+    },
+    tired: {
+      message: "😴 Your energy has been low. Champions know when to switch gears! How about a quick 5-question quiz to wake up your brain, or should we take a different angle on this topic?",
+      label: "😴 Sustained fatigue detected"
+    },
+    stressed: {
+      message: "😰 I can see the stress building up. Let's take a step back. Would you like Dr. Sage to guide a quick reflection, or should Nova re-summarize the key points to simplify things?",
+      label: "😰 Sustained stress detected"
+    }
+  };
+
+  const intervention = interventions[state];
+  if (!intervention) return;
+
+  const det = document.getElementById('emotion-detected');
+  det.textContent = `⚡ ${intervention.label} — AI Study Mirror activating...`;
+  det.classList.add('triggered');
+  setTimeout(() => det.classList.remove('triggered'), 6000);
+
+  setBubbleText(intervention.message);
+  addChatMessage(`[🪞 AI Study Mirror — ${intervention.label}]`, 'ai');
+  addChatMessage(intervention.message, 'ai');
+  speakText(intervention.message, currentAvatar);
+}
+
 function triggerEmotionResponse(emotion) {
   const now = Date.now();
   if (emotion === lastEmotionTrigger && now - lastTriggerTime < 18000) return;
@@ -676,6 +1036,9 @@ async function toggleCamera() {
     if (video.srcObject) video.srcObject.getTracks().forEach(t => t.stop());
     video.classList.remove('visible'); btn.classList.remove('active'); btn.textContent = '📷';
     status.textContent = '👁️ Camera off'; status.className = '';
+    emotionWindow = [];
+    const fm = document.getElementById('focus-meter');
+    if (fm) fm.classList.remove('visible');
     return;
   }
   try {
@@ -713,6 +1076,7 @@ async function toggleCamera() {
             else mapped = 'focused';
           }
           updateEmotionUI(mapped);
+          pushEmotionReading(mapped);
           if (['happy', 'tired', 'stressed', 'confused'].includes(mapped) && score > 0.65)
             triggerEmotionResponse(mapped);
         }
@@ -730,29 +1094,87 @@ function startSimulatedEmotions() {
   emotionInterval = setInterval(() => {
     const e = sequence[i % sequence.length];
     updateEmotionUI(e);
+    pushEmotionReading(e);
     if (['happy', 'confused', 'stressed'].includes(e)) triggerEmotionResponse(e);
     i++;
   }, 9000);
 }
 
-// ─── VOICE INPUT ────────────────────────────────────────────────────
+// ─── VOICE-FIRST PEDAGOGY — CONTINUOUS LISTENING ────────────────────
+let continuousListening = false;
+
 function toggleVoice() {
   const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
   if (!SR) { alert('Voice not supported. Try Chrome.'); return; }
   const btn = document.getElementById('voice-btn');
+
   if (isListening) {
-    speechRecognition.stop(); isListening = false;
-    btn.classList.remove('listening'); btn.textContent = '🎤'; return;
+    // Stop continuous listening
+    continuousListening = false;
+    isListening = false;
+    if (speechRecognition) speechRecognition.abort();
+    btn.classList.remove('listening');
+    btn.textContent = '🎤';
+    addChatMessage('[🎤 Voice mode OFF — switched to typing]', 'ai');
+    return;
   }
+
+  // Start continuous listening
+  continuousListening = true;
+  startContinuousListening();
+  addChatMessage('[🎤 Hands-free voice mode ON — speak naturally, I\'m always listening!]', 'ai');
+  setBubbleText('🎤 Voice mode activated! Speak naturally — I\'m listening continuously. Click the mic button again to stop.');
+}
+
+function startContinuousListening() {
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  const btn = document.getElementById('voice-btn');
+
   speechRecognition = new SR();
-  speechRecognition.lang = 'en-US'; speechRecognition.continuous = false; speechRecognition.interimResults = false;
-  speechRecognition.onstart = () => { isListening = true; btn.classList.add('listening'); btn.textContent = '⏹️'; };
-  speechRecognition.onresult = (e) => {
-    const t = e.results[0][0].transcript;
-    document.getElementById('user-input').value = t;
-    sendMessage(t);
+  speechRecognition.lang = 'en-US';
+  speechRecognition.continuous = true;
+  speechRecognition.interimResults = false;
+
+  speechRecognition.onstart = () => {
+    isListening = true;
+    btn.classList.add('listening');
+    btn.textContent = '⏹️';
   };
-  speechRecognition.onend = () => { isListening = false; btn.classList.remove('listening'); btn.textContent = '🎤'; };
+
+  speechRecognition.onresult = (e) => {
+    // Get the latest result
+    const lastResult = e.results[e.results.length - 1];
+    if (lastResult.isFinal) {
+      const transcript = lastResult[0].transcript.trim();
+      if (transcript) {
+        document.getElementById('user-input').value = transcript;
+        sendMessage(transcript);
+      }
+    }
+  };
+
+  speechRecognition.onend = () => {
+    // Auto-restart if continuous mode is still on
+    if (continuousListening) {
+      setTimeout(() => {
+        if (continuousListening) startContinuousListening();
+      }, 300);
+    } else {
+      isListening = false;
+      btn.classList.remove('listening');
+      btn.textContent = '🎤';
+    }
+  };
+
+  speechRecognition.onerror = (e) => {
+    if (e.error === 'no-speech' && continuousListening) {
+      // Silence — just restart
+      return;
+    }
+    if (e.error === 'aborted') return;
+    console.warn('Speech error:', e.error);
+  };
+
   speechRecognition.start();
 }
 
